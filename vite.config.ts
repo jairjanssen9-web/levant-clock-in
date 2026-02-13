@@ -8,6 +8,9 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
       },
+      build: {
+        chunkSizeWarningLimit: 1000,
+      },
       plugins: [react()],
       // Geen API-keys in de client bundle: Gemini e.d. alleen via een backend gebruiken.
       define: {},
