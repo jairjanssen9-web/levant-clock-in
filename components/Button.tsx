@@ -23,14 +23,14 @@ export const Button: React.FC<ButtonProps> = ({
     
     // Special massive buttons for clocking
     'clock-in': "bg-gradient-to-br from-levant-gold to-yellow-600 text-black border-none shadow-[0_0_20px_rgba(212,175,55,0.4)] hover:shadow-[0_0_30px_rgba(212,175,55,0.6)] hover:brightness-110",
-    'clock-out': "bg-neutral-900 text-neutral-400 border-2 border-neutral-700 hover:border-red-500 hover:text-red-500 hover:bg-neutral-800"
+    'clock-out': "bg-neutral-900 text-neutral-400 border-2 border-neutral-700 hover:border-red-500 hover:text-red-500 hover:bg-neutral-800 min-h-[3.5rem]"
   };
 
   const sizes = {
-    sm: "px-4 py-2 text-xs rounded-lg",
-    md: "px-6 py-3 text-sm rounded-xl",
-    lg: "px-8 py-4 text-base rounded-2xl",
-    xl: "px-10 py-6 text-xl rounded-2xl w-full" // Massive for touch targets
+    sm: "px-4 py-2.5 md:py-3 text-xs md:text-sm rounded-lg min-h-[2.5rem] md:min-h-[2.75rem]",
+    md: "px-6 py-3.5 md:py-4 text-sm md:text-base rounded-xl min-h-[2.75rem] md:min-h-[3rem]",
+    lg: "px-8 py-4 md:py-5 text-base md:text-lg rounded-2xl min-h-[3rem] md:min-h-[3.5rem]",
+    xl: "px-10 py-6 md:py-7 text-lg md:text-xl rounded-2xl w-full min-h-[3.5rem] md:min-h-[4rem]" // iPad-vriendelijke touch targets
   };
 
   return (

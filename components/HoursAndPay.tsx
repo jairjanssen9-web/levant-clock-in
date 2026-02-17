@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Employee, TimeLog } from '../types';
 import { Button } from './Button';
-import { Download, Calendar, Clock, FileText, Pencil } from 'lucide-react';
+import { Download, Calendar, Clock, FileText } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -11,10 +11,21 @@ interface HoursAndPayProps {
 }
 
 export const HoursAndPay: React.FC<HoursAndPayProps> = ({ employees, logs }) => {
+  const activeEmployees = useMemo(() => employees.filter(e => e.isActive), [employees]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
-  const [selectedEmpId, setSelectedEmpId] = useState(employees[0]?.id || '');
+  const [selectedEmpId, setSelectedEmpId] = useState(activeEmployees[0]?.id || '');
 
-  const employee = employees.find(e => e.id === selectedEmpId);
+  // Als de geselecteerde medewerker is verwijderd, kies de eerste actieve
+  useEffect(() => {
+    const stillActive = activeEmployees.some(e => e.id === selectedEmpId);
+    if (!stillActive && activeEmployees.length > 0) {
+      setSelectedEmpId(activeEmployees[0].id);
+    } else if (activeEmployees.length === 0) {
+      setSelectedEmpId('');
+    }
+  }, [activeEmployees, selectedEmpId]);
+
+  const employee = activeEmployees.find(e => e.id === selectedEmpId);
 
   // Filter logs for employee and month
   const monthlyLogs = useMemo(() => {
@@ -65,7 +76,7 @@ export const HoursAndPay: React.FC<HoursAndPayProps> = ({ employees, logs }) => 
     doc.setFont("times", "bold");
     doc.text(`Totaal Uren: ${totalHours.toFixed(2)}`, 140, 50);
 
-    // Table
+    // Table (geen kolom voor aanpassingen)
     const tableData = monthlyLogs.map(log => {
       const date = log.date;
       const start = log.clockIn ? new Date(log.clockIn).toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'}) : '-';
@@ -77,14 +88,12 @@ export const HoursAndPay: React.FC<HoursAndPayProps> = ({ employees, logs }) => 
           hoursStr = diff.toFixed(2);
       }
 
-      const edited = log.edits.length > 0 ? `Ja (${log.edits.length})` : 'Nee';
-
-      return [date, start, end, hoursStr, edited];
+      return [date, start, end, hoursStr];
     });
 
     autoTable(doc, {
       startY: 70,
-      head: [['Datum', 'Start', 'Eind', 'Uren', 'Aangepast']],
+      head: [['Datum', 'Start', 'Eind', 'Uren']],
       body: tableData,
       theme: 'grid',
       headStyles: { fillColor: [28, 25, 23], textColor: [212, 175, 55] },
@@ -100,74 +109,87 @@ export const HoursAndPay: React.FC<HoursAndPayProps> = ({ employees, logs }) => 
     doc.save(`Levant_Uren_${employee.name.replace(' ', '_')}_${selectedMonth}.pdf`);
   };
 
+  // Geen actieve medewerkers: toon alleen melding (geen PDF-mogelijkheid)
+  if (activeEmployees.length === 0) {
+    return (
+      <div className="space-y-6 md:space-y-8">
+        <header>
+          <h2 className="text-4xl md:text-5xl font-serif text-white mb-2">Uren Lijst</h2>
+          <p className="text-neutral-400 font-bold uppercase tracking-widest text-sm md:text-base">Bekijk gewerkte uren & exporteer</p>
+        </header>
+        <div className="bg-neutral-900/80 border border-neutral-800 p-8 md:p-12 rounded-3xl text-center shadow-lg">
+          <p className="text-neutral-400 text-lg md:text-xl mb-2">Er staan geen medewerkers in het systeem.</p>
+          <p className="text-neutral-500 text-sm md:text-base">Voeg in <strong className="text-levant-gold">Beheer → Team</strong> eerst medewerkers toe om uren te bekijken of een PDF te maken.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 md:space-y-8">
        <header>
-        <h2 className="text-4xl font-serif text-white mb-2">Uren Lijst</h2>
-        <p className="text-neutral-400 font-bold uppercase tracking-widest">Bekijk gewerkte uren & exporteer</p>
+        <h2 className="text-4xl md:text-5xl font-serif text-white mb-2">Uren Lijst</h2>
+        <p className="text-neutral-400 font-bold uppercase tracking-widest text-sm md:text-base">Bekijk gewerkte uren & exporteer</p>
       </header>
 
-      <div className="grid md:grid-cols-3 gap-8">
-        {/* Controls */}
-        <div className="bg-neutral-900/80 border border-neutral-800 p-8 rounded-3xl space-y-8 h-fit shadow-lg">
+      <div className="grid md:grid-cols-3 gap-6 md:gap-8">
+        {/* Alleen actieve medewerkers; PDF alleen voor hen */}
+        <div className="bg-neutral-900/80 border border-neutral-800 p-6 md:p-8 rounded-3xl space-y-6 md:space-y-8 h-fit shadow-lg">
           <div>
-            <label className="block text-xs uppercase text-levant-gold mb-3 font-black tracking-widest">Kies Medewerker</label>
+            <label className="block text-xs md:text-sm uppercase text-levant-gold mb-3 font-black tracking-widest">Kies Medewerker</label>
             <select
               value={selectedEmpId}
               onChange={(e) => setSelectedEmpId(e.target.value)}
-              className="w-full bg-neutral-800 border-2 border-neutral-700 text-white text-lg rounded-xl p-4 focus:border-levant-gold outline-none font-bold"
+              className="w-full bg-neutral-800 border-2 border-neutral-700 text-white text-lg md:text-xl rounded-xl p-4 md:p-5 focus:border-levant-gold outline-none font-bold min-h-[3rem] md:min-h-[3.5rem]"
             >
-              {employees.map(e => (
+              {activeEmployees.map(e => (
                 <option key={e.id} value={e.id}>{e.name}</option>
               ))}
             </select>
           </div>
 
           <div>
-            <label className="block text-xs uppercase text-levant-gold mb-3 font-black tracking-widest">Maand</label>
+            <label className="block text-xs md:text-sm uppercase text-levant-gold mb-3 font-black tracking-widest">Maand</label>
             <input 
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full bg-neutral-800 border-2 border-neutral-700 text-white text-lg rounded-xl p-4 focus:border-levant-gold outline-none font-bold"
+              className="w-full bg-neutral-800 border-2 border-neutral-700 text-white text-lg md:text-xl rounded-xl p-4 md:p-5 focus:border-levant-gold outline-none font-bold min-h-[3rem] md:min-h-[3.5rem]"
             />
           </div>
 
-          <div className="pt-4">
-            <Button onClick={generatePDF} className="w-full" size="lg" variant="primary">
-              <Download size={20} /> Download PDF
+          <div className="pt-2 md:pt-4">
+            <Button onClick={generatePDF} className="w-full" size="lg" variant="primary" disabled={!employee}>
+              <Download size={20} className="md:w-6 md:h-6" /> Download PDF
             </Button>
           </div>
         </div>
 
-        {/* Results */}
+        {/* Results — iPad: grotere totalen en rijen */}
         <div className="md:col-span-2 space-y-6">
-            {/* Cards */}
-            <div className="bg-gradient-to-r from-neutral-900 to-neutral-800 border border-levant-gold/30 p-8 rounded-3xl relative overflow-hidden flex items-center justify-between">
+            <div className="bg-gradient-to-r from-neutral-900 to-neutral-800 border border-levant-gold/30 p-6 md:p-8 rounded-3xl relative overflow-hidden flex items-center justify-between">
                 <div>
-                   <p className="text-sm text-levant-gold uppercase tracking-widest mb-2 font-black">Totaal Uren ({new Date(selectedMonth).toLocaleString('nl-NL', {month: 'long'})})</p>
+                   <p className="text-sm md:text-base text-levant-gold uppercase tracking-widest mb-2 font-black">Totaal Uren ({new Date(selectedMonth).toLocaleString('nl-NL', {month: 'long'})})</p>
                    <div className="flex items-baseline gap-3">
-                      <p className="text-7xl font-serif text-white font-bold">{totalHours.toFixed(2)}</p>
-                      <span className="text-2xl font-sans text-neutral-500 font-bold">uur</span>
+                      <p className="text-6xl md:text-7xl lg:text-8xl font-serif text-white font-bold">{totalHours.toFixed(2)}</p>
+                      <span className="text-xl md:text-2xl font-sans text-neutral-500 font-bold">uur</span>
                    </div>
                 </div>
                 <div className="opacity-10 text-levant-gold">
-                   <Clock size={120} />
+                   <Clock size={100} className="md:w-32 md:h-32" />
                 </div>
             </div>
 
-            {/* List */}
             <div className="bg-neutral-900/50 border border-neutral-800 rounded-3xl overflow-hidden">
-               <div className="grid grid-cols-4 bg-neutral-900 p-6 text-xs font-black text-neutral-500 uppercase tracking-widest">
+               <div className="grid grid-cols-3 bg-neutral-900 p-4 md:p-6 text-xs md:text-sm font-black text-neutral-500 uppercase tracking-widest">
                  <div className="col-span-1">Datum</div>
                  <div className="col-span-1">Tijden</div>
                  <div className="col-span-1 text-right">Uren</div>
-                 <div className="col-span-1 text-right">Info</div>
                </div>
                
-               <div className="divide-y divide-neutral-800 max-h-[500px] overflow-y-auto custom-scrollbar">
+               <div className="divide-y divide-neutral-800 max-h-[400px] md:max-h-[500px] overflow-y-auto custom-scrollbar">
                  {monthlyLogs.length === 0 ? (
-                   <div className="p-12 text-center text-neutral-500 italic text-lg">Geen uren gevonden voor deze maand.</div>
+                   <div className="p-8 md:p-12 text-center text-neutral-500 italic text-base md:text-lg">Geen uren gevonden voor deze maand.</div>
                  ) : (
                     monthlyLogs.map(log => {
                       const hours = log.clockOut 
@@ -175,29 +197,15 @@ export const HoursAndPay: React.FC<HoursAndPayProps> = ({ employees, logs }) => 
                         : '...';
                       
                       return (
-                        <div key={log.id} className="grid grid-cols-4 p-6 text-base hover:bg-white/5 transition-colors items-center">
+                        <div key={log.id} className="grid grid-cols-3 p-4 md:p-6 text-base md:text-lg hover:bg-white/5 transition-colors items-center min-h-[3.25rem] md:min-h-[3.75rem]">
                           <div className="text-white font-bold">
                             {new Date(log.date).toLocaleDateString('nl-NL', {weekday: 'short', day: 'numeric'})}
                           </div>
-                          <div className="text-neutral-400 text-sm">
+                          <div className="text-neutral-400 text-sm md:text-base">
                             <span className="block">{new Date(log.clockIn).toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'})} IN</span>
                              {log.clockOut && <span className="block">{new Date(log.clockOut).toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'})} UIT</span>}
                           </div>
-                          <div className="text-right text-levant-gold font-mono font-bold text-xl">{hours}</div>
-                          <div className="text-right flex items-center justify-end gap-2">
-                            {log.edits.length > 0 ? (
-                              <>
-                                <span title="Deze uren zijn door een admin aangepast" className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40" aria-hidden="true">
-                                  <Pencil size={16} strokeWidth={2.5} />
-                                </span>
-                                <span className="text-[10px] bg-neutral-800 text-amber-400 px-2 py-1 rounded border border-neutral-700 font-bold uppercase tracking-wider">
-                                  Aangepast
-                                </span>
-                              </>
-                            ) : (
-                               <span className="text-neutral-700 text-xs">—</span>
-                            )}
-                          </div>
+                          <div className="text-right text-levant-gold font-mono font-bold text-xl md:text-2xl">{hours}</div>
                         </div>
                       )
                     })

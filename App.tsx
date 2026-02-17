@@ -131,9 +131,57 @@ export default function App() {
   };
 
   const handleRemoveEmployee = async (id: string) => {
-    // Soft delete / deactivate
+    // Soft delete: persoon uit de lijst, uren blijven nog een maand bewaard voor rapportage
     setEmployees(employees.map(e => e.id === id ? { ...e, isActive: false } : e));
     await supabase.from('employees').update(toSnakeCase({ isActive: false })).eq('id', id);
+  };
+
+  const handleEditEmployee = async (id: string, name: string, role: Role) => {
+    const updated = { name, role };
+    const { error } = await supabase.from('employees').update(toSnakeCase(updated)).eq('id', id);
+    if (error) {
+      console.error('Medewerker bijwerken mislukt:', error);
+      await fetchData();
+      return;
+    }
+    setEmployees(prev => prev.map(e => e.id === id ? { ...e, name, role } : e));
+  };
+
+  /** Verwijder alle voltooide uren; ingelogde (actieve) registraties blijven staan. Retourneert false bij fout. */
+  const handleDeleteAllLogs = async (): Promise<boolean> => {
+    const { error } = await supabase.from('time_logs').delete().eq('status', 'completed');
+    if (error) {
+      console.error('Alle uren verwijderen mislukt:', error);
+      return false;
+    }
+    setLogs(prev => prev.filter(l => l.status === 'active'));
+    return true;
+  };
+
+  /** Volledige reset: alle uren, medewerkers en instellingen verwijderen. Bij succes wordt herladen (installatiescherm). Retourneert false bij fout. */
+  const handleFullReset = async (): Promise<boolean> => {
+    try {
+      const { error: err1 } = await supabase.from('time_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (err1) {
+        console.error('Reset time_logs mislukt:', err1);
+        return false;
+      }
+      const { error: err2 } = await supabase.from('employees').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (err2) {
+        console.error('Reset employees mislukt:', err2);
+        return false;
+      }
+      const { error: err3 } = await supabase.from('settings').delete().gte('id', 0);
+      if (err3) {
+        console.error('Reset settings mislukt:', err3);
+        return false;
+      }
+      window.location.reload();
+      return true;
+    } catch (e) {
+      console.error('Reset mislukt:', e);
+      return false;
+    }
   };
 
   const handleEditLog = async (logId: string, newIn: string, newOut: string, reason: string) => {
@@ -232,41 +280,44 @@ VITE_SUPABASE_ANON_KEY=jouw-anon-key`}
             employees={employees} 
             logs={logs}
             onAddEmployee={handleAddEmployee}
+            onEditEmployee={handleEditEmployee}
             onRemoveEmployee={handleRemoveEmployee}
             onEditLog={handleEditLog}
+            onDeleteAllLogs={handleDeleteAllLogs}
+            onFullReset={handleFullReset}
             onLogout={() => setIsAdmin(false)}
           />
         ) : (
-          <div className="flex h-full items-center justify-center flex-col p-4 animate-fade-in">
-             <div className="bg-neutral-900 border border-levant-gold/30 p-10 rounded-2xl shadow-2xl max-w-md w-full relative overflow-hidden">
+          <div className="flex h-full items-center justify-center flex-col p-4 md:p-6 animate-fade-in">
+             <div className="bg-neutral-900 border border-levant-gold/30 p-8 md:p-10 rounded-2xl shadow-2xl max-w-md w-full relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-levant-gold to-transparent opacity-50"></div>
                 
-                <div className="flex justify-center mb-6">
-                   <div className="p-4 rounded-full bg-neutral-800 text-levant-gold border border-levant-gold/20 shadow-[0_0_15px_rgba(212,175,55,0.2)]">
-                      <Lock size={32} />
+                <div className="flex justify-center mb-5 md:mb-6">
+                   <div className="p-4 md:p-5 rounded-full bg-neutral-800 text-levant-gold border border-levant-gold/20 shadow-[0_0_15px_rgba(212,175,55,0.2)]">
+                      <Lock size={32} className="md:w-10 md:h-10" />
                    </div>
                 </div>
 
-                <h2 className="text-3xl font-serif text-white mb-2 text-center">Admin Login</h2>
-                <p className="text-neutral-500 text-center mb-8 text-sm">Toegang tot personeelsbeheer</p>
+                <h2 className="text-3xl md:text-4xl font-serif text-white mb-2 text-center">Admin Login</h2>
+                <p className="text-neutral-500 text-center mb-6 md:mb-8 text-sm md:text-base">Toegang tot personeelsbeheer</p>
                 
                 <form onSubmit={handleLogin} className="space-y-6">
                    <div>
-                      <label className="block text-xs uppercase text-neutral-500 mb-2 tracking-widest font-bold text-center">Pincode</label>
+                      <label className="block text-xs md:text-sm uppercase text-neutral-500 mb-2 tracking-widest font-bold text-center">Pincode</label>
                       <input 
                         type="password" 
                         value={passwordInput}
                         onChange={(e) => setPasswordInput(e.target.value)}
-                        className="w-full bg-neutral-800 border-2 border-neutral-700 text-white rounded-xl p-4 focus:border-levant-gold outline-none text-xl text-center tracking-[0.5em] transition-colors"
+                        className="w-full bg-neutral-800 border-2 border-neutral-700 text-white rounded-xl p-4 md:p-5 focus:border-levant-gold outline-none text-xl md:text-2xl text-center tracking-[0.5em] transition-colors min-h-[3.25rem] md:min-h-[3.75rem]"
                         placeholder="••••"
                       />
                    </div>
                    {loginError && (
-                     <p className="text-red-500 text-center text-sm font-bold bg-red-900/10 py-2 rounded animate-pulse">
+                     <p className="text-red-500 text-center text-sm md:text-base font-bold bg-red-900/10 py-2 md:py-3 rounded animate-pulse">
                         Onjuiste Pincode
                      </p>
                    )}
-                   <Button type="submit" className="w-full py-4 text-lg" variant="primary">
+                   <Button type="submit" className="w-full py-4 md:py-5 text-lg md:text-xl" variant="primary">
                       Verifieer
                    </Button>
                 </form>
