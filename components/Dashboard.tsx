@@ -96,8 +96,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, logs, onClockIn
         </div>
       </header>
 
-      {/* Grid: 1 col mobile, 2 col iPad, 3 col desktop — iPad grotere gaps en kaarten */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8 pb-20">
+      {/* Grid: min. 300px per kaart, ruime tussenruimte — overzichtelijk bij meerdere personen naast elkaar */}
+      <div 
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8 lg:gap-10 xl:gap-12 pb-20"
+        style={{ gridAutoRows: '1fr' }}
+      >
         {employees.filter(e => e.isActive).map(employee => {
           const isWorking = activeEmployeeIds.includes(employee.id);
           const hasFinished = finishedTodayIds.includes(employee.id);
@@ -140,9 +143,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, logs, onClockIn
           return (
             <div 
               key={employee.id} 
-              className={`relative overflow-hidden rounded-3xl transition-all duration-300 border-2 p-1 ${cardStyle}`}
+              className={`relative overflow-hidden rounded-3xl transition-all duration-300 border-2 min-w-0 min-h-[320px] md:min-h-[360px] ${cardStyle}`}
             >
-              <div className="p-6 md:p-8 lg:p-8 flex flex-col items-center text-center space-y-4 md:space-y-5 h-full justify-between">
+              <div className="p-6 md:p-7 lg:p-8 flex flex-col items-center text-center gap-4 md:gap-5 h-full justify-between box-border">
                 
                 <div className="flex flex-col items-center w-full">
                     {/* Avatar / Initial — iPad groter */}
