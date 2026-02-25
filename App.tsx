@@ -9,6 +9,9 @@ import { Employee, TimeLog, Role } from './types';
 import { Lock, Loader } from 'lucide-react';
 import { supabase, toCamelCase, toSnakeCase, isSupabaseConfigured } from './lib/supabase';
 
+/** Only in Cursor/dev: allow app without Supabase and optional admin bypass. Production build never sets this. */
+const isOfflineDevMode = import.meta.env.DEV;
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -69,7 +72,7 @@ export default function App() {
     }
   };
 
-  // Actions wrapped with Supabase
+  // Actions wrapped with Supabase (when not configured, only local state is updated)
   const handleClockIn = async (employeeId: string) => {
     const today = new Date().toISOString().split('T')[0];
     const now = new Date().toISOString();
@@ -82,14 +85,15 @@ export default function App() {
         edits: []
     };
 
-    // Optimistic Update
     const tempId = Math.random().toString();
     setLogs(prev => [...prev, { ...newLog, id: tempId, clockOut: null } as TimeLog]);
+
+    if (isOfflineDevMode && !isSupabaseConfigured) return;
 
     const { data, error } = await supabase.from('time_logs').insert([toSnakeCase(newLog)]).select();
     if (error) {
         console.error(error);
-        fetchData(); // Revert on error
+        await fetchData();
     } else if(data) {
         // Replace temp with real
         setLogs(prev => prev.map(l => l.id === tempId ? toCamelCase<TimeLog>(data[0]) : l));
@@ -101,9 +105,9 @@ export default function App() {
     if (!log) return;
 
     const now = new Date().toISOString();
-
-    // Optimistic Update
     setLogs(prev => prev.map(l => l.id === log.id ? { ...l, clockOut: now, status: 'completed' } : l));
+
+    if (isOfflineDevMode && !isSupabaseConfigured) return;
 
     const { error } = await supabase
         .from('time_logs')
@@ -112,17 +116,22 @@ export default function App() {
 
     if (error) {
         console.error(error);
-        fetchData();
+        await fetchData();
     }
   };
 
   const handleAddEmployee = async (name: string, role: Role) => {
+    if (isOfflineDevMode && !isSupabaseConfigured) {
+      const newEmp: Employee = { id: crypto.randomUUID(), name, role, isActive: true };
+      setEmployees(prev => [...prev, newEmp]);
+      return;
+    }
     const newEmp = { name, role, isActive: true };
     const { data, error } = await supabase.from('employees').insert([toSnakeCase(newEmp)]).select();
     
     if (error) {
       console.error('Medewerker toevoegen mislukt:', error);
-      await fetchData(); // sync state met server
+      await fetchData();
       return;
     }
     if (data && data[0]) {
@@ -131,24 +140,32 @@ export default function App() {
   };
 
   const handleRemoveEmployee = async (id: string) => {
-    // Soft delete: persoon uit de lijst, uren blijven nog een maand bewaard voor rapportage
     setEmployees(employees.map(e => e.id === id ? { ...e, isActive: false } : e));
-    await supabase.from('employees').update(toSnakeCase({ isActive: false })).eq('id', id);
+    if (isOfflineDevMode && !isSupabaseConfigured) return;
+    const { error } = await supabase.from('employees').update(toSnakeCase({ isActive: false })).eq('id', id);
+    if (error) {
+      console.error('Medewerker verwijderen mislukt:', error);
+      await fetchData();
+    }
   };
 
   const handleEditEmployee = async (id: string, name: string, role: Role) => {
+    setEmployees(prev => prev.map(e => e.id === id ? { ...e, name, role } : e));
+    if (isOfflineDevMode && !isSupabaseConfigured) return;
     const updated = { name, role };
     const { error } = await supabase.from('employees').update(toSnakeCase(updated)).eq('id', id);
     if (error) {
       console.error('Medewerker bijwerken mislukt:', error);
       await fetchData();
-      return;
     }
-    setEmployees(prev => prev.map(e => e.id === id ? { ...e, name, role } : e));
   };
 
   /** Verwijder alle voltooide uren; ingelogde (actieve) registraties blijven staan. Retourneert false bij fout. */
   const handleDeleteAllLogs = async (): Promise<boolean> => {
+    if (isOfflineDevMode && !isSupabaseConfigured) {
+      setLogs(prev => prev.filter(l => l.status === 'active'));
+      return true;
+    }
     const { error } = await supabase.from('time_logs').delete().eq('status', 'completed');
     if (error) {
       console.error('Alle uren verwijderen mislukt:', error);
@@ -160,6 +177,11 @@ export default function App() {
 
   /** Volledige reset: alle uren, medewerkers en instellingen verwijderen. Bij succes wordt herladen (installatiescherm). Retourneert false bij fout. */
   const handleFullReset = async (): Promise<boolean> => {
+    if (isOfflineDevMode && !isSupabaseConfigured) {
+      setLogs([]);
+      setEmployees([]);
+      return true;
+    }
     try {
       const { error: err1 } = await supabase.from('time_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       if (err1) {
@@ -184,6 +206,36 @@ export default function App() {
     }
   };
 
+  /** Handmatig nieuwe uren toevoegen (of iemand geklockt heeft of niet). */
+  const handleAddLog = async (employeeId: string, date: string, clockIn: string, clockOut: string | null, reason: string) => {
+    const editRecord = {
+      date: new Date().toISOString(),
+      newIn: clockIn,
+      newOut: clockOut || undefined,
+      reason: reason || 'Handmatig toegevoegd door admin',
+      adminName: 'Admin'
+    };
+    const newLog = {
+      employeeId,
+      date,
+      clockIn,
+      clockOut: clockOut || null,
+      status: (clockOut ? 'completed' : 'active') as 'active' | 'completed',
+      edits: [editRecord]
+    };
+    const tempId = Math.random().toString();
+    setLogs(prev => [...prev, { ...newLog, id: tempId } as TimeLog]);
+    if (isOfflineDevMode && !isSupabaseConfigured) return;
+    const { data, error } = await supabase.from('time_logs').insert([toSnakeCase(newLog)]).select();
+    if (error) {
+      console.error('Nieuwe uren toevoegen mislukt:', error);
+      await fetchData();
+    } else if (data?.[0]) {
+      setLogs(prev => prev.map(l => l.id === tempId ? toCamelCase<TimeLog>(data[0]) : l));
+    }
+  };
+    
+
   const handleEditLog = async (logId: string, newIn: string, newOut: string, reason: string) => {
     const originalLog = logs.find(l => l.id === logId);
     if (!originalLog) return;
@@ -200,23 +252,29 @@ export default function App() {
 
     const updatedEdits = [...originalLog.edits, editRecord];
     const newStatus: 'active' | 'completed' = newOut ? 'completed' : 'active';
-    
     const updatePayload = {
-        clockIn: newIn,
-        clockOut: newOut || null,
-        status: newStatus,
-        edits: updatedEdits
+      clockIn: newIn,
+      clockOut: newOut || null,
+      status: newStatus,
+      edits: updatedEdits
     };
 
-    // Optimistic
     setLogs(prev => prev.map(l => l.id === logId ? { ...l, ...updatePayload } : l));
-
-    await supabase.from('time_logs').update(toSnakeCase(updatePayload)).eq('id', logId);
+    if (isOfflineDevMode && !isSupabaseConfigured) return;
+    const { error } = await supabase.from('time_logs').update(toSnakeCase(updatePayload)).eq('id', logId);
+    if (error) {
+      console.error('Log wijzigen mislukt:', error);
+      await fetchData();
+    }
   };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput === adminPin) {
+    // Offline dev with no Supabase: adminPin stays null; allow any non-empty input so the form works
+    const pinValid = isOfflineDevMode && adminPin === null
+      ? passwordInput.trim().length > 0
+      : passwordInput === adminPin;
+    if (pinValid) {
        setIsAdmin(true);
        setLoginError(false);
        setPasswordInput('');
@@ -227,8 +285,8 @@ export default function App() {
 
   // --- RENDERING ---
 
-  // Geen Supabase-config: toon duidelijke melding (geen zwart scherm)
-  if (!isSupabaseConfigured) {
+  // Production only: require Supabase to be configured (live app must use backend)
+  if (!isOfflineDevMode && !isSupabaseConfigured) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white p-6">
         <div className="max-w-md bg-neutral-900 border border-levant-gold/50 rounded-2xl p-8 text-center space-y-4">
@@ -257,6 +315,7 @@ VITE_SUPABASE_ANON_KEY=jouw-anon-key`}
       );
   }
 
+  // Show setup when Supabase is configured and no PIN has been set yet (production or dev with Supabase)
   if (needsSetup) {
       return <AdminSetup onComplete={() => window.location.reload()} />;
   }
@@ -282,6 +341,7 @@ VITE_SUPABASE_ANON_KEY=jouw-anon-key`}
             onAddEmployee={handleAddEmployee}
             onEditEmployee={handleEditEmployee}
             onRemoveEmployee={handleRemoveEmployee}
+            onAddLog={handleAddLog}
             onEditLog={handleEditLog}
             onDeleteAllLogs={handleDeleteAllLogs}
             onFullReset={handleFullReset}
@@ -320,6 +380,11 @@ VITE_SUPABASE_ANON_KEY=jouw-anon-key`}
                    <Button type="submit" className="w-full py-4 md:py-5 text-lg md:text-xl" variant="primary">
                       Verifieer
                    </Button>
+                   {isOfflineDevMode && (
+                     <p className="text-neutral-500 text-xs text-center mt-3">
+                       Geen pincode? <button type="button" onClick={() => { setIsAdmin(true); setLoginError(false); }} className="text-levant-gold underline hover:no-underline">Development: open admin</button>
+                     </p>
+                   )}
                 </form>
              </div>
           </div>

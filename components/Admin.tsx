@@ -1,8 +1,19 @@
 import React, { useState, useMemo } from 'react';
 import { Employee, TimeLog, Role } from '../types';
 import { Button } from './Button';
-import { UserPlus, UserMinus, Pencil, AlertTriangle, Save, X, History, FileText, LogOut, Settings, KeyRound, Lock } from 'lucide-react';
+import { UserPlus, UserMinus, Pencil, AlertTriangle, Save, X, History, FileText, LogOut, Settings, KeyRound, Lock, PlusCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+
+/** Parse datetime-local value (YYYY-MM-DDTHH:mm or with seconds) as local time. Avoids UTC interpretation. */
+function parseDateTimeLocal(value: string): Date {
+  const [datePart, timePart] = value.split('T');
+  const [y, m, d] = datePart.split('-').map(Number);
+  const time = (timePart || '00:00').split(':');
+  const hr = Number(time[0]) || 0;
+  const min = Number(time[1]) || 0;
+  const sec = Number(time[2]) || 0;
+  return new Date(y, m - 1, d, hr, min, sec, 0);
+}
 
 interface AdminProps {
   employees: Employee[];
@@ -10,13 +21,14 @@ interface AdminProps {
   onAddEmployee: (name: string, role: Role) => void;
   onEditEmployee: (id: string, name: string, role: Role) => void;
   onRemoveEmployee: (id: string) => void;
+  onAddLog: (employeeId: string, date: string, clockIn: string, clockOut: string | null, reason: string) => void;
   onEditLog: (logId: string, newIn: string, newOut: string, reason: string) => void;
   onDeleteAllLogs: () => Promise<boolean>;
   onFullReset: () => Promise<boolean>;
   onLogout: () => void;
 }
 
-export const Admin: React.FC<AdminProps> = ({ employees, logs, onAddEmployee, onEditEmployee, onRemoveEmployee, onEditLog, onDeleteAllLogs, onFullReset, onLogout }) => {
+export const Admin: React.FC<AdminProps> = ({ employees, logs, onAddEmployee, onEditEmployee, onRemoveEmployee, onAddLog, onEditLog, onDeleteAllLogs, onFullReset, onLogout }) => {
   const [activeTab, setActiveTab] = useState<'staff' | 'logs' | 'audit' | 'settings'>('staff');
 
   // New Employee State
@@ -36,6 +48,13 @@ export const Admin: React.FC<AdminProps> = ({ employees, logs, onAddEmployee, on
   const [editIn, setEditIn] = useState('');
   const [editOut, setEditOut] = useState('');
   const [editReason, setEditReason] = useState('');
+
+  // New Log State (handmatig uren aanmaken)
+  const [showAddLogForm, setShowAddLogForm] = useState(false);
+  const [newLogEmployeeId, setNewLogEmployeeId] = useState('');
+  const [newLogClockIn, setNewLogClockIn] = useState('');
+  const [newLogClockOut, setNewLogClockOut] = useState('');
+  const [newLogReason, setNewLogReason] = useState('');
 
   // Settings State
   const [authEmail, setAuthEmail] = useState('');
@@ -91,9 +110,9 @@ export const Admin: React.FC<AdminProps> = ({ employees, logs, onAddEmployee, on
 
   const saveEdit = () => {
     if (editingLogId && editReason) {
-      const dateIn = new Date(editIn);
-      const dateOut = editOut ? new Date(editOut) : null;
-      
+      const dateIn = parseDateTimeLocal(editIn);
+      const dateOut = editOut ? parseDateTimeLocal(editOut) : null;
+
       onEditLog(
         editingLogId, 
         dateIn.toISOString(), 
@@ -104,6 +123,28 @@ export const Admin: React.FC<AdminProps> = ({ employees, logs, onAddEmployee, on
     } else {
         alert("Vul aub een reden in voor de wijziging.");
     }
+  };
+
+  const handleAddNewLog = () => {
+    if (!newLogEmployeeId || !newLogClockIn) {
+      alert('Kies een medewerker en vul minimaal de starttijd in.');
+      return;
+    }
+    const clockInDate = parseDateTimeLocal(newLogClockIn);
+    const clockOutDate = newLogClockOut ? parseDateTimeLocal(newLogClockOut) : null;
+    if (clockOutDate && clockOutDate.getTime() <= clockInDate.getTime()) {
+      alert('Eindtijd moet na de starttijd liggen.');
+      return;
+    }
+    const date = clockInDate.toISOString().split('T')[0];
+    const clockIn = clockInDate.toISOString();
+    const clockOut = clockOutDate ? clockOutDate.toISOString() : null;
+    onAddLog(newLogEmployeeId, date, clockIn, clockOut, newLogReason.trim() || 'Handmatig toegevoegd door admin');
+    setNewLogEmployeeId('');
+    setNewLogClockIn('');
+    setNewLogClockOut('');
+    setNewLogReason('');
+    setShowAddLogForm(false);
   };
 
   const handleChangePin = async () => {
@@ -408,6 +449,72 @@ export const Admin: React.FC<AdminProps> = ({ employees, logs, onAddEmployee, on
       
       {activeTab === 'logs' && (
         <div className="space-y-4">
+           {/* Nieuwe uren aanmaken */}
+           {!showAddLogForm ? (
+             <Button variant="secondary" onClick={() => setShowAddLogForm(true)} className="w-full md:w-auto min-h-[3rem] md:min-h-[3.25rem] flex items-center justify-center gap-2">
+               <PlusCircle size={22} className="md:w-6 md:h-6" /> Nieuwe uren aanmaken
+             </Button>
+           ) : (
+             <div className="bg-neutral-900/80 border border-levant-gold/30 p-5 md:p-6 rounded-2xl space-y-5">
+               <h3 className="text-lg md:text-xl font-bold text-white flex items-center gap-2">
+                 <PlusCircle size={24} className="text-levant-gold md:w-7 md:h-7" /> Nieuwe uren aanmaken
+               </h3>
+               <p className="text-neutral-400 text-sm md:text-base">Voeg handmatig uren toe voor een medewerker (of die nu geklockt heeft of niet).</p>
+               <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+                 <div>
+                   <label className="text-xs md:text-sm font-bold uppercase text-neutral-500 tracking-widest mb-2 block">Medewerker</label>
+                   <select
+                     value={newLogEmployeeId}
+                     onChange={(e) => setNewLogEmployeeId(e.target.value)}
+                     className="w-full bg-neutral-800 border-2 border-neutral-700 text-white rounded-xl p-4 md:p-5 focus:border-levant-gold outline-none text-base md:text-lg min-h-[3rem] md:min-h-[3.5rem]"
+                   >
+                     <option value="">— Kies medewerker —</option>
+                     {employees.filter(e => e.isActive).map(emp => (
+                       <option key={emp.id} value={emp.id}>{emp.name}</option>
+                     ))}
+                   </select>
+                 </div>
+                 <div>
+                   <label className="text-xs md:text-sm font-bold uppercase text-neutral-500 tracking-widest mb-2 block">Starttijd</label>
+                   <input
+                     type="datetime-local"
+                     value={newLogClockIn}
+                     onChange={(e) => setNewLogClockIn(e.target.value)}
+                     className="w-full bg-neutral-800 border-2 border-neutral-700 text-white rounded-xl p-4 md:p-5 focus:border-levant-gold outline-none text-base md:text-lg min-h-[3rem] md:min-h-[3.5rem]"
+                   />
+                 </div>
+                 <div>
+                   <label className="text-xs md:text-sm font-bold uppercase text-neutral-500 tracking-widest mb-2 block">Eindtijd (optioneel)</label>
+                   <input
+                     type="datetime-local"
+                     value={newLogClockOut}
+                     onChange={(e) => setNewLogClockOut(e.target.value)}
+                     className="w-full bg-neutral-800 border-2 border-neutral-700 text-white rounded-xl p-4 md:p-5 focus:border-levant-gold outline-none text-base md:text-lg min-h-[3rem] md:min-h-[3.5rem]"
+                   />
+                   <p className="text-neutral-500 text-xs mt-1">Leeg laten = nog actief (niet uitgeklokt)</p>
+                 </div>
+                 <div className="md:col-span-2">
+                   <label className="text-xs md:text-sm font-bold uppercase text-neutral-500 tracking-widest mb-2 block">Reden (optioneel)</label>
+                   <input
+                     type="text"
+                     value={newLogReason}
+                     onChange={(e) => setNewLogReason(e.target.value)}
+                     placeholder="Bijv. Handmatig toegevoegd of vergeten te klokken"
+                     className="w-full bg-neutral-800 border-2 border-neutral-700 text-white rounded-xl p-4 md:p-5 focus:border-levant-gold outline-none text-base md:text-lg min-h-[3rem] md:min-h-[3.5rem]"
+                   />
+                 </div>
+               </div>
+               <div className="flex flex-wrap gap-3 pt-2">
+                 <Button variant="secondary" onClick={() => { setShowAddLogForm(false); setNewLogEmployeeId(''); setNewLogClockIn(''); setNewLogClockOut(''); setNewLogReason(''); }}>
+                   Annuleren
+                 </Button>
+                 <Button onClick={handleAddNewLog} disabled={!newLogEmployeeId || !newLogClockIn}>
+                   <Save size={18} className="md:w-5 md:h-5" /> Toevoegen
+                 </Button>
+               </div>
+             </div>
+           )}
+
            <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
              {completedLogs.map(log => {
                const emp = employees.find(e => e.id === log.employeeId);
@@ -522,25 +629,33 @@ export const Admin: React.FC<AdminProps> = ({ employees, logs, onAddEmployee, on
                                  {audit.logDate}
                               </td>
                               <td className="p-4 md:p-6 text-xs md:text-sm font-mono">
-                                 {audit.previousIn !== audit.newIn && (
-                                    <div className="flex flex-col gap-1 mb-2">
-                                       <span className="text-red-400 line-through opacity-70">
-                                          In: {new Date(audit.previousIn!).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                                       </span>
-                                       <span className="text-green-400">
-                                          In: {new Date(audit.newIn!).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                                       </span>
-                                    </div>
-                                 )}
-                                 {audit.previousOut !== audit.newOut && (
-                                    <div className="flex flex-col gap-1">
-                                       <span className="text-red-400 line-through opacity-70">
-                                          Uit: {audit.previousOut ? new Date(audit.previousOut).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'N/A'}
-                                       </span>
-                                       <span className="text-green-400">
-                                          Uit: {audit.newOut ? new Date(audit.newOut).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'N/A'}
-                                       </span>
-                                    </div>
+                                 {audit.previousIn === undefined && audit.previousOut === undefined ? (
+                                    <span className="text-green-400">
+                                       Aangemaakt — In: {audit.newIn ? new Date(audit.newIn).toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'}) : '—'}, Uit: {audit.newOut ? new Date(audit.newOut).toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'}) : '—'}
+                                    </span>
+                                 ) : (
+                                    <>
+                                       {audit.previousIn !== audit.newIn && audit.previousIn != null && audit.newIn != null && (
+                                          <div className="flex flex-col gap-1 mb-2">
+                                             <span className="text-red-400 line-through opacity-70">
+                                                In: {new Date(audit.previousIn).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                             </span>
+                                             <span className="text-green-400">
+                                                In: {new Date(audit.newIn).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                             </span>
+                                          </div>
+                                       )}
+                                       {audit.previousOut !== audit.newOut && (
+                                          <div className="flex flex-col gap-1">
+                                             <span className="text-red-400 line-through opacity-70">
+                                                Uit: {audit.previousOut ? new Date(audit.previousOut).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'N/A'}
+                                             </span>
+                                             <span className="text-green-400">
+                                                Uit: {audit.newOut ? new Date(audit.newOut).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'N/A'}
+                                             </span>
+                                          </div>
+                                       )}
+                                    </>
                                  )}
                               </td>
                               <td className="p-4 md:p-6 italic text-neutral-300 text-xs md:text-sm">"{audit.reason}"</td>
