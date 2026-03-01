@@ -188,9 +188,12 @@ export const HoursAndPay: React.FC<HoursAndPayProps> = ({ employees, logs }) => 
                </div>
                
                <div className="divide-y divide-neutral-800 max-h-[400px] md:max-h-[500px] overflow-y-auto custom-scrollbar">
-                 {monthlyLogs.length === 0 ? (
-                   <div className="p-8 md:p-12 text-center text-neutral-500 italic text-base md:text-lg">Geen uren gevonden voor deze maand.</div>
-                 ) : (
+               {monthlyLogs.length === 0 ? (
+                  <div className="p-8 md:p-12 text-center text-neutral-500 text-base md:text-lg space-y-2">
+                    <p className="italic">Geen uren gevonden voor deze maand.</p>
+                    <p className="text-sm text-neutral-600">Kies een andere maand in de selector links; het logboek in Beheer toont uren van alle maanden.</p>
+                  </div>
+                ) : (
                     monthlyLogs.map(log => {
                       const hours = log.clockOut 
                         ? ((new Date(log.clockOut).getTime() - new Date(log.clockIn).getTime()) / (1000 * 60 * 60)).toFixed(2) 
